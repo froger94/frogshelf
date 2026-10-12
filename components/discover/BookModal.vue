@@ -29,24 +29,19 @@
               <ui-btn small color="primary" @click="openLibraryItem">{{ $strings.ButtonOpen }}</ui-btn>
             </div>
 
-            <div v-else-if="statusLabel" class="flex items-center text-sm" :class="llStatus === 'library' ? 'text-success' : 'text-warning'">
+            <div v-else-if="statusLabel" class="flex items-center text-sm" :class="status === 'library' ? 'text-success' : 'text-warning'">
               <span class="material-symbols text-lg mr-1">{{ statusIcon }}</span>
               <p>{{ statusLabel }}</p>
             </div>
 
-            <template v-else-if="!llConfigured">
-              <p class="text-sm text-fg-muted">{{ $strings.MessageDiscoverSetupLazyLibrarian }}</p>
-              <ui-btn small color="primary" class="mt-2" @click="goToSettings">{{ $strings.HeaderSettings }}</ui-btn>
-            </template>
-
-            <template v-else>
+            <template v-else-if="!statusError">
               <ui-btn color="success" class="w-full" :loading="requesting" @click="requestAudiobook">
                 <span class="material-symbols text-lg align-middle mr-1">add</span>
                 <span class="align-middle">{{ $strings.ButtonRequestAudiobook }}</span>
               </ui-btn>
             </template>
 
-            <p v-if="llError" class="text-xs text-error pt-2">{{ llError }}</p>
+            <p v-if="statusError" class="text-xs text-error pt-2">{{ statusError }}</p>
           </template>
         </div>
 
@@ -70,9 +65,8 @@ export default {
       imageFailed: false,
       checking: false,
       requesting: false,
-      llConfigured: false,
-      llStatus: null,
-      llError: null,
+      status: null,
+      statusError: null,
       libraryItemId: null,
       description: '',
       showFullDescription: false
@@ -91,14 +85,16 @@ export default {
       return this.$store.state.libraries.currentLibraryId
     },
     statusLabel() {
-      if (this.llStatus === 'library') return this.$strings.LabelDiscoverInLibrary
-      if (this.llStatus === 'requested') return this.$strings.LabelDiscoverRequested
-      if (this.llStatus === 'downloading') return this.$strings.LabelDiscoverDownloading
+      if (this.status === 'library') return this.$strings.LabelDiscoverInLibrary
+      if (this.status === 'pending') return this.$strings.LabelRequestPending
+      if (this.status === 'requested') return this.$strings.LabelDiscoverRequested
+      if (this.status === 'downloading') return this.$strings.LabelDiscoverDownloading
       return null
     },
     statusIcon() {
-      if (this.llStatus === 'library') return 'check_circle'
-      if (this.llStatus === 'downloading') return 'downloading'
+      if (this.status === 'library') return 'check_circle'
+      if (this.status === 'downloading') return 'downloading'
+      if (this.status === 'pending') return 'hourglass_top'
       return 'schedule'
     }
   },
@@ -135,16 +131,13 @@ export default {
       })
       return match?.libraryItem?.id || null
     },
-    async loadLazyLibrarianStatus() {
-      await this.$lazylibrarian.getSettings()
-      this.llConfigured = this.$lazylibrarian.isConfigured
-      if (!this.llConfigured) return
+    async loadRequestStatus() {
       try {
-        const statuses = await this.$lazylibrarian.getAudiobookStatuses()
-        this.llStatus = statuses[this.book.id] || null
+        const statuses = await this.$broker.getStatuses()
+        this.status = statuses[this.book.id] || null
       } catch (error) {
-        console.error('[Discover] LazyLibrarian status failed', error)
-        this.llError = error.message
+        console.error('[Discover] Request status failed', error)
+        this.statusError = error.message
       }
     },
     async loadDescription() {
@@ -157,8 +150,8 @@ export default {
     },
     async init() {
       this.imageFailed = false
-      this.llStatus = null
-      this.llError = null
+      this.status = null
+      this.statusError = null
       this.libraryItemId = null
       this.description = ''
       this.showFullDescription = false
@@ -166,7 +159,7 @@ export default {
 
       const bookId = this.book.id
       this.loadDescription()
-      const [libraryItemId] = await Promise.all([this.findInLibrary(), this.loadLazyLibrarianStatus()])
+      const [libraryItemId] = await Promise.all([this.findInLibrary(), this.loadRequestStatus()])
       // Ignore results if a different book was opened meanwhile
       if (this.book?.id !== bookId) return
       this.libraryItemId = libraryItemId
@@ -174,24 +167,20 @@ export default {
     },
     async requestAudiobook() {
       this.requesting = true
-      this.llError = null
+      this.statusError = null
       try {
-        await this.$lazylibrarian.requestAudiobook(this.book.id)
-        this.llStatus = 'requested'
-        this.$toast.success(this.$getString('ToastDiscoverRequested', [this.book.title]))
+        this.status = await this.$broker.requestBook(this.book)
+        const message = this.status === 'pending' ? 'ToastRequestSentForApproval' : 'ToastDiscoverRequested'
+        this.$toast.success(this.$getString(message, [this.book.title]))
       } catch (error) {
         console.error('[Discover] Request failed', error)
-        this.llError = error.message
+        this.statusError = error.message
       }
       this.requesting = false
     },
     openLibraryItem() {
       this.show = false
       this.$router.push(`/item/${this.libraryItemId}`)
-    },
-    goToSettings() {
-      this.show = false
-      this.$router.push('/settings')
     }
   }
 }

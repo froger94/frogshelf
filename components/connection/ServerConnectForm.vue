@@ -67,6 +67,8 @@
           </form>
           <div v-if="isLocalAuthEnabled && isOpenIDAuthEnabled" class="w-full h-px bg-fg/10 my-4" />
           <ui-btn v-if="isOpenIDAuthEnabled" :disabled="processing" class="h-10 w-full" @click="clickLoginWithOpenId">{{ oauth.buttonText }}</ui-btn>
+          <!-- Frogshelf: ask the server's admin for an account (only shown when the server runs the Frogshelf broker) -->
+          <connection-account-request v-if="!serverConfig.id" :server-address="serverConfig.address" @account-ready="accountReady" />
         </template>
       </div>
 
@@ -816,6 +818,11 @@ export default {
      */
     prependProtocolIfNeeded(address) {
       return address.startsWith('http://') || address.startsWith('https://') ? address : `https://${address}`
+    },
+    accountReady({ username, password }) {
+      this.serverConfig.username = username
+      this.password = password
+      this.submitAuth()
     },
     async submitAuth() {
       if (!this.networkConnected) return

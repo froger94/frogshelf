@@ -175,9 +175,6 @@
       </div>
     </template>
 
-    <!-- LazyLibrarian settings -->
-    <lazylibrarian-settings-section />
-
     <div v-show="loading" class="w-full h-full absolute top-0 left-0 flex items-center justify-center z-10">
       <ui-loading-indicator />
     </div>
