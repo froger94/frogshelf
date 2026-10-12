@@ -1,0 +1,98 @@
+---
+# Custom Prowlarr definition for AudioBookBay, installed in Prowlarr's /config/Definitions/Custom/.
+# Prowlarr dropped its official AudioBookBay definition, and LazyLibrarian's built-in provider gets
+# 404s because the site rejects the python-requests User-Agent. Going through Prowlarr avoids that.
+id: audiobookbay-custom
+name: AudioBookBay (custom)
+description: "AudioBookBay is a public site for English audiobooks (custom Frogshelf definition)"
+language: en-US
+type: public
+encoding: UTF-8
+links:
+  - https://audiobookbay.lu/
+
+caps:
+  categorymappings:
+    - {id: audiobook, cat: Audio/Audiobook, desc: Audiobook}
+
+  modes:
+    search: [q]
+    book-search: [q, title, author]
+
+settings: []
+
+# Search results don't link to a torrent; the details page shows the info hash in its info table,
+# which is turned into a magnet link. The "Torrent Free Downloads" links on that page are ad redirects.
+download:
+  # The site answers 404 to non-browser User-Agents (including Prowlarr's and python-requests')
+  headers:
+    User-Agent: ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"]
+  infohash:
+    hash:
+      selector: 'td:contains("Info Hash:") + td'
+      filters:
+        - name: regexp
+          args: ([A-Fa-f0-9]{40})
+    title:
+      selector: div.postTitle h1
+      filters:
+        - name: validfilename
+
+search:
+  headers:
+    User-Agent: ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"]
+  paths:
+    - path: "{{ if .Keywords }}?s={{ .Keywords }}{{ else }}{{ end }}"
+  keywordsfilters:
+    - name: tolower
+
+  rows:
+    # Only English posts; the site also carries Spanish, German, etc. audiobooks
+    selector: 'div.post:has(div.postInfo:contains("Language: English"))'
+
+  fields:
+    category:
+      text: audiobook
+    title:
+      selector: div.postTitle h2 a
+    details:
+      selector: div.postTitle h2 a
+      attribute: href
+    download:
+      selector: div.postTitle h2 a
+      attribute: href
+    poster:
+      selector: div.postContent img
+      attribute: src
+      optional: true
+    date:
+      # "Posted: 2 Nov 2021"
+      selector: 'div.postContent p:contains("Posted:")'
+      filters:
+        - name: regexp
+          args: "Posted:\\s*(\\d{1,2} \\w{3} \\d{4})"
+        - name: dateparse
+          args: "d MMM yyyy"
+    size:
+      # "File Size: 165.57 MBs"
+      selector: 'div.postContent p:contains("File Size:")'
+      filters:
+        - name: regexp
+          args: "File Size:\\s*([\\d\\.,]+\\s*[KMGT]B)"
+    description:
+      # "Format: M4B / Bitrate: 128 Kbps"
+      selector: 'div.postContent p:contains("Format:")'
+      optional: true
+      filters:
+        - name: regexp
+          args: "(Format:.*?Kbps)"
+    # The site doesn't publish seeder counts; 1 keeps clients from rejecting every result
+    seeders:
+      text: 1
+    leechers:
+      text: 1
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1
+# WordPress search
