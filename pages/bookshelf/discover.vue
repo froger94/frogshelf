@@ -18,6 +18,12 @@
     <template v-else>
       <discover-row v-for="row in visibleRows" :key="row.id" :label="row.label" :books="row.books" :loading="row.loading" :error="row.error" :card-width="cardWidth" @select="selectBook" />
     </template>
+
+    <!-- Modal.vue detaches its own element on mount, so keep it in a wrapper that stays put; otherwise
+         Vue loses its anchor when inserting the rows/search results above it and renders nothing -->
+    <div>
+      <discover-book-modal v-model="showBookModal" :book="selectedBook" />
+    </div>
   </div>
 </template>
 
@@ -34,7 +40,9 @@ export default {
       searchError: null,
       searchTimeout: null,
       searchRequestId: 0,
-      cardWidth: 100
+      cardWidth: 100,
+      selectedBook: null,
+      showBookModal: false
     }
   },
   computed: {
@@ -65,8 +73,8 @@ export default {
   },
   methods: {
     selectBook(book) {
-      // Book details and requesting through LazyLibrarian come in the next step
-      console.log(`[Discover] Selected ${book.id} "${book.title}"`)
+      this.selectedBook = book
+      this.showBookModal = true
     },
     async loadRow(row, definition) {
       try {

@@ -97,6 +97,19 @@ class OpenLibrary {
   }
 
   /**
+   * Description for the book details sheet. Open Library descriptions are either a string or
+   * { type, value } and often end with a "----------" block of source links, which is dropped.
+   * @returns {Promise<{ description: string }>}
+   */
+  async getWork(id) {
+    const data = await this.get(`/works/${id}.json`)
+    let description = data.description?.value ?? data.description ?? ''
+    if (typeof description !== 'string') description = ''
+    description = description.split(/\r?\n-{3,}/)[0].replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').trim()
+    return { description }
+  }
+
+  /**
    * @returns {Promise<DiscoverBook[]>}
    */
   async search(query, limit = 30) {
