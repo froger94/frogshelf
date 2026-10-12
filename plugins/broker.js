@@ -21,7 +21,7 @@ class Broker {
   }
 
   /**
-   * @param {string} serverAddress Audiobookshelf address, e.g. http://192.168.2.43:30067
+   * @param {string} serverAddress Audiobookshelf address, e.g. http://192.168.1.10:13378
    * @returns {string|null}
    */
   urlFor(serverAddress) {

@@ -1,9 +1,9 @@
 {
   "port": 8080,
   "db_path": "/data/broker.db",
-  "abs_url": "http://192.168.2.43:30067",
+  "abs_url": "http://<nas-ip>:13378",
   "abs_api_key": "<Audiobookshelf API key from an admin account>",
-  "ll_url": "http://192.168.2.43:5299",
+  "ll_url": "http://<nas-ip>:5299",
   "ll_api_key": "<LazyLibrarian full access API key>",
   "ntfy_url": "https://ntfy.sh/<random topic name>",
   "signup_enabled": true
