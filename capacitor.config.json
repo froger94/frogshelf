@@ -13,5 +13,8 @@
   },
   "server": {
     "androidScheme": "http"
+  },
+  "android": {
+    "backgroundColor": "#232323"
   }
 }
