@@ -15,7 +15,10 @@ export default {
   },
   computed: {
     hideToolbar() {
-      return this.isHome || this.isLatest || this.isPodcastSearch
+      return this.isHome || this.isLatest || this.isPodcastSearch || this.isDiscover
+    },
+    isDiscover() {
+      return this.$route.name === 'bookshelf-discover'
     },
     isHome() {
       return this.$route.name === 'bookshelf'

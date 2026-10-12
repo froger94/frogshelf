@@ -109,6 +109,14 @@ export default {
             icon: 'authors',
             iconClass: 'text-2xl',
             text: this.$strings.ButtonAuthors
+          },
+          {
+            to: '/bookshelf/discover',
+            routeName: 'bookshelf-discover',
+            iconPack: 'material-symbols',
+            icon: 'explore',
+            iconClass: 'text-xl',
+            text: this.$strings.ButtonDiscover
           }
         ]
       }
