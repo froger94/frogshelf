@@ -36,6 +36,9 @@
           <p v-else-if="book.status === 'library' && book.libraryDate" class="text-xs text-fg-muted pt-1">{{ $getString('LabelAddedDate', [formatDate(book.libraryDate)]) }}</p>
         </div>
 
+        <div v-if="book.status === 'downloading'" class="flex flex-none" @click.stop>
+          <ui-icon-btn icon="swap_horiz" borderless :loading="busyId === book.id" @click="tryAnotherRelease(book)" />
+        </div>
         <div v-if="book.status === 'requested'" class="flex flex-none" @click.stop>
           <ui-icon-btn icon="search" borderless :loading="busyId === book.id" @click="searchAgain(book)" />
           <ui-icon-btn icon="close" borderless :disabled="busyId === book.id" @click="cancel(book)" />
@@ -124,6 +127,22 @@ export default {
       }
       this.busyId = null
     },
+    async tryAnotherRelease(book) {
+      const { value } = await Dialog.confirm({ title: book.title, message: this.$strings.MessageConfirmTryAnotherRelease })
+      if (!value) return
+      this.busyId = book.id
+      try {
+        const outcome = await this.$lazylibrarian.tryAnotherRelease(book.id)
+        if (outcome === 'new') this.$toast.success(this.$strings.ToastAnotherReleaseFound)
+        else if (outcome === 'same') this.$toast.warning(this.$strings.ToastOnlySameReleaseFound)
+        else this.$toast.info(this.$strings.ToastNoOtherReleaseFound)
+        await this.load()
+      } catch (error) {
+        console.error('[Requests] Try another release failed', error)
+        this.$toast.error(error.message)
+      }
+      this.busyId = null
+    },
     async cancel(book) {
       const { value } = await Dialog.confirm({ title: book.title, message: this.$strings.MessageConfirmCancelRequest })
       if (!value) return
@@ -140,7 +159,7 @@ export default {
   mounted() {
     this.load()
     this.refreshInterval = setInterval(() => {
-      if (!this.loading && !this.showBookModal && this.llConfigured) this.load()
+      if (!this.loading && !this.busyId && !this.showBookModal && this.llConfigured) this.load()
     }, REFRESH_INTERVAL_MS)
   },
   beforeDestroy() {

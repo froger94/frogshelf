@@ -6,6 +6,7 @@ const REQUEST_TIMEOUT_MS = 15000
 // addBook waits for LazyLibrarian to fetch the book from its metadata source, which can be slow
 const ADD_BOOK_TIMEOUT_MS = 60000
 const STATUS_CACHE_TTL_MS = 60 * 1000
+const SEARCH_WAIT_TIMEOUT_MS = 120000
 
 /**
  * LazyLibrarian AudioStatus values mapped to what the app shows
@@ -209,6 +210,56 @@ class LazyLibrarian {
       }
     }
     return progress
+  }
+
+  /**
+   * Gives up on the current (e.g. unseeded) download and searches for a different release.
+   * The API has no "mark failed" command, so this uses the web UI's markhistory endpoint, which marks the
+   * release Failed (LazyLibrarian then skips it when blacklist_failed is on) and sets the audiobook back to Wanted.
+   * That endpoint needs no login only while LazyLibrarian user accounts are off, so the result is verified.
+   *
+   * LazyLibrarian's failed-release check matches on link and indexer, and Prowlarr hands out a new link per search,
+   * so the same dead torrent can come back from another indexer. The torrent hash is compared to report that.
+   * @returns {Promise<'new'|'same'|'none'>} new release found, only the same release found again, or nothing found
+   */
+  async tryAnotherRelease(bookId) {
+    const data = await this.request('getDownloadProgress')
+    const download = (data?.Data || []).find((d) => d.BookID === bookId && d.AuxInfo === 'AudioBook')
+    if (!download || download.rowid == null) {
+      throw new LazyLibrarianError('This download is no longer active in LazyLibrarian')
+    }
+    const oldDownloadId = download.DownloadID
+
+    const address = this.normalizeAddress(this.settings.address)
+    let response
+    try {
+      response = await CapacitorHttp.get({
+        url: `${address}/markhistory?rowid=${encodeURIComponent(download.rowid)}`,
+        connectTimeout: REQUEST_TIMEOUT_MS,
+        readTimeout: REQUEST_TIMEOUT_MS
+      })
+    } catch (error) {
+      console.error('[LazyLibrarian] markhistory failed', error)
+      throw new LazyLibrarianError(`Unable to reach LazyLibrarian at ${address}`)
+    }
+    if (response.status >= 400) {
+      throw new LazyLibrarianError(`LazyLibrarian returned HTTP ${response.status}`, response.status)
+    }
+
+    const statuses = await this.getAudiobookStatuses(true)
+    if (statuses[bookId] !== 'requested') {
+      throw new LazyLibrarianError("LazyLibrarian didn't mark the release as failed. If its user accounts are on, mark it failed on its History page instead.")
+    }
+
+    // Wait for the search so the outcome can be reported; it queries every indexer, so allow plenty of time
+    const result = await this.request('searchBook', { id: bookId, type: 'AudioBook', wait: 1 }, null, SEARCH_WAIT_TIMEOUT_MS)
+    if (typeof result === 'string' && result !== 'OK') throw new LazyLibrarianError(result)
+    this.statusCache = null
+
+    const after = await this.request('getDownloadProgress')
+    const newDownload = (after?.Data || []).find((d) => d.BookID === bookId && d.AuxInfo === 'AudioBook')
+    if (!newDownload) return 'none'
+    return oldDownloadId && newDownload.DownloadID === oldDownloadId ? 'same' : 'new'
   }
 
   async searchAudiobook(bookId) {
