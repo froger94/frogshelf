@@ -126,6 +126,11 @@ export default {
         })
       }
       items.push({
+        icon: 'pending_actions',
+        text: this.$strings.HeaderRequests,
+        to: '/requests'
+      })
+      items.push({
         icon: 'settings',
         text: this.$strings.HeaderSettings,
         to: '/settings'

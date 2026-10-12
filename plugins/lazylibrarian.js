@@ -170,6 +170,60 @@ class LazyLibrarian {
   }
 
   /**
+   * LazyLibrarian's cached cover path is relative to its web root ("cache/book/OL24156W.jpg")
+   */
+  coverUrl(bookImg) {
+    if (!bookImg || bookImg.includes('nocover')) return null
+    if (/^https?:\/\//.test(bookImg)) return bookImg
+    return `${this.normalizeAddress(this.settings.address)}/${bookImg.replace(/^\/+/, '')}`
+  }
+
+  /**
+   * Every audiobook that is wanted, downloading, or in the library, newest activity first
+   * @returns {Promise<{ id: string, title: string, author: string, coverUrl: string|null, status: 'library'|'requested'|'downloading', libraryDate: string|null }[]>}
+   */
+  async getAudiobookRequests() {
+    const books = await this.request('getAllBooks')
+    return (Array.isArray(books) ? books : [])
+      .filter((book) => AUDIO_STATUS_MAP[book.AudioStatus])
+      .map((book) => ({
+        id: book.BookID,
+        title: book.BookName,
+        author: book.AuthorName || '',
+        coverUrl: this.coverUrl(book.BookImg),
+        status: AUDIO_STATUS_MAP[book.AudioStatus],
+        libraryDate: book.AudioLibrary || null
+      }))
+  }
+
+  /**
+   * Progress (0-100) of active audiobook downloads, keyed by book id
+   * @returns {Promise<Object<string, number>>}
+   */
+  async getDownloadProgress() {
+    const data = await this.request('getDownloadProgress')
+    const progress = {}
+    for (const download of data?.Data || []) {
+      if (download.AuxInfo === 'AudioBook' && download.BookID) {
+        progress[download.BookID] = Math.max(0, Math.min(100, Number(download.progress) || 0))
+      }
+    }
+    return progress
+  }
+
+  async searchAudiobook(bookId) {
+    await this.runCommand('searchBook', { id: bookId, type: 'AudioBook' })
+  }
+
+  /**
+   * Marks the audiobook as skipped so LazyLibrarian stops looking for it
+   */
+  async cancelAudiobook(bookId) {
+    await this.runCommand('unqueueBook', { id: bookId, type: 'AudioBook' })
+    this.statusCache = null
+  }
+
+  /**
    * Adds the book to LazyLibrarian, marks the audiobook as wanted and starts a search for it.
    * @param {string} bookId Open Library work id
    */

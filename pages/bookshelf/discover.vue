@@ -1,7 +1,10 @@
 <template>
   <div class="w-full h-full overflow-y-auto pb-20">
-    <div class="px-4 pt-4 pb-1">
-      <ui-text-input v-model="searchQuery" borderless :placeholder="$strings.PlaceholderSearchBooks" bg="white bg-opacity-10" rounded="md" prepend-icon="search" text-size="base" clearable class="w-full" @input="searchInput" />
+    <div class="flex items-center px-4 pt-4 pb-1">
+      <ui-text-input v-model="searchQuery" borderless :placeholder="$strings.PlaceholderSearchBooks" bg="white bg-opacity-10" rounded="md" prepend-icon="search" text-size="base" clearable class="flex-grow" @input="searchInput" />
+      <nuxt-link to="/requests" class="ml-2 w-10 h-10 flex-none flex items-center justify-center rounded-md bg-white bg-opacity-10" :aria-label="$strings.HeaderRequests">
+        <span class="material-symbols text-xl">pending_actions</span>
+      </nuxt-link>
     </div>
 
     <template v-if="isSearching">
