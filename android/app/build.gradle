@@ -49,6 +49,17 @@ android {
       ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
   }
+  // Frogshelf release key lives outside the repo; its path and passwords come from ~/.gradle/gradle.properties
+  if (project.hasProperty('FROGSHELF_RELEASE_STORE_FILE')) {
+    signingConfigs {
+      frogshelfRelease {
+        storeFile file(FROGSHELF_RELEASE_STORE_FILE)
+        storePassword FROGSHELF_RELEASE_STORE_PASSWORD
+        keyAlias FROGSHELF_RELEASE_KEY_ALIAS
+        keyPassword FROGSHELF_RELEASE_KEY_PASSWORD
+      }
+    }
+  }
   buildTypes {
     debug {
       applicationIdSuffix ".debug"
@@ -59,6 +70,10 @@ android {
     release {
       minifyEnabled false
       proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+      // Unsigned when the key isn't configured, so the repo builds anywhere without secrets
+      if (signingConfigs.findByName('frogshelfRelease')) {
+        signingConfig signingConfigs.frogshelfRelease
+      }
     }
   }
 }
