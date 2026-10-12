@@ -1128,8 +1128,7 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
   //
   private val VALID_MEDIA_BROWSERS =
           mutableListOf(
-                  "com.audiobookshelf.app",
-                  "com.audiobookshelf.app.debug",
+                  BuildConfig.APPLICATION_ID,
                   ANDROID_AUTO_PKG_NAME,
                   ANDROID_AUTO_SIMULATOR_PKG_NAME,
                   ANDROID_WEARABLE_PKG_NAME,

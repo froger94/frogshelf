@@ -15,7 +15,7 @@ export default {
   },
 
   head: {
-    title: 'Audiobookshelf',
+    title: 'Frogshelf',
     htmlAttrs: {
       lang: 'en'
     },
