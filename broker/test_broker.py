@@ -285,6 +285,11 @@ class BrokerTest(unittest.TestCase):
         states = {r['bookId']: r['state'] for r in self.call('GET', '/api/requests', token=FRIEND_TOKEN)[1]['requests']}
         self.assertEqual(states, {'OL7W': 'denied', 'OL8W': 'cancelled'})
 
+    def test_served_under_tunnel_prefix(self):
+        self.assertEqual(self.call('GET', '/frogshelf/api/info')[1]['app'], 'frogshelf-broker')
+        self.assertEqual(self.call('GET', '/frogshelf/api/me', token=ADMIN_TOKEN)[0], 200)
+        self.assertEqual(self.call('GET', '/frogshelfx/api/info')[0], 404)
+
     def test_bad_book_id(self):
         self.assertEqual(self.call('POST', '/api/requests', {'bookId': '../etc', 'title': 'x'}, FRIEND_TOKEN)[0], 400)
 

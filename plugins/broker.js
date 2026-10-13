@@ -1,7 +1,10 @@
 import { CapacitorHttp } from '@capacitor/core'
 
-// The Frogshelf broker runs next to Audiobookshelf on this port, so its address follows from the server address
+// The Frogshelf broker runs next to Audiobookshelf, so its address follows from the server address: on this port for
+// LAN/Tailscale addresses, or under this path when Audiobookshelf is reached through a domain (Cloudflare Tunnel)
 const BROKER_PORT = 30091
+const BROKER_PATH = '/frogshelf'
+const IP_ADDRESS = /^(\d{1,3}(\.\d{1,3}){3}|\[[0-9a-f:]+\])$/i
 const REQUEST_TIMEOUT_MS = 20000
 // Approving a request or swapping a release waits for LazyLibrarian to search every indexer
 const SLOW_TIMEOUT_MS = 150000
@@ -27,7 +30,8 @@ class Broker {
   urlFor(serverAddress) {
     try {
       const url = new URL(serverAddress)
-      return `http://${url.hostname}:${BROKER_PORT}`
+      if (url.port || IP_ADDRESS.test(url.hostname) || url.hostname === 'localhost') return `http://${url.hostname}:${BROKER_PORT}`
+      return `${url.origin}${BROKER_PATH}`
     } catch {
       return null
     }

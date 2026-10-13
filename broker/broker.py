@@ -405,6 +405,8 @@ class ApiError(Exception):
 
 
 ROUTES = []
+# Through the Cloudflare Tunnel the broker shares Audiobookshelf's domain under this path
+PATH_PREFIX = '/frogshelf'
 
 
 def route(method, pattern):
@@ -790,11 +792,14 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self, method):
         parsed = urllib.parse.urlsplit(self.path)
         self.query = urllib.parse.parse_qs(parsed.query)
+        path = parsed.path
+        if path == PATH_PREFIX or path.startswith(PATH_PREFIX + '/'):
+            path = path[len(PATH_PREFIX):] or '/'
         try:
-            if method == 'GET' and parsed.path.startswith('/api/covers/'):
-                return self.serve_cover(parsed.path)
+            if method == 'GET' and path.startswith('/api/covers/'):
+                return self.serve_cover(path)
             for route_method, regex, fn in ROUTES:
-                match = regex.match(parsed.path)
+                match = regex.match(path)
                 if match and route_method == method:
                     return self.send_json(200, fn(self, **match.groupdict()))
             raise ApiError(404, 'Not found')
