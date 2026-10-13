@@ -222,17 +222,28 @@ def ll_books():
     return books if isinstance(books, list) else []
 
 
+def ll_raw_statuses(books=None):
+    books = ll_books() if books is None else books
+    return {b['BookID']: AUDIO_STATUS_MAP[b['AudioStatus']] for b in books if b.get('BookID') and b.get('AudioStatus') in AUDIO_STATUS_MAP}
+
+
+def effective_status(status, book_id, active_ids):
+    # LazyLibrarian can leave a book "Snatched" after its torrent vanished from the download client (e.g. the add
+    # failed, or a cleanup removed it). Nothing will ever finish, so show it as wanted, where "Search again" applies.
+    if status == 'downloading' and book_id not in active_ids:
+        return 'requested'
+    return status
+
+
 def ll_statuses():
-    return {b['BookID']: AUDIO_STATUS_MAP[b['AudioStatus']] for b in ll_books() if b.get('BookID') and b.get('AudioStatus') in AUDIO_STATUS_MAP}
+    raw = ll_raw_statuses()
+    active = {d['BookID'] for d in ll_downloads()} if 'downloading' in raw.values() else set()
+    return {book_id: effective_status(status, book_id, active) for book_id, status in raw.items()}
 
 
 def ll_downloads():
     data = ll_request('getDownloadProgress')
     return [d for d in (data.get('Data') or []) if d.get('AuxInfo') == 'AudioBook' and d.get('BookID')] if isinstance(data, dict) else []
-
-
-def ll_progress():
-    return {d['BookID']: max(0, min(100, int(float(d.get('progress') or 0)))) for d in ll_downloads()}
 
 
 def ll_add_and_search(book_id):
@@ -250,7 +261,8 @@ def ll_try_another_release(book_id):
     if not download or download.get('rowid') is None:
         raise UpstreamError('This download is no longer active in LazyLibrarian', 409)
     old_id = download.get('DownloadID')
-    status, _ = http_call('GET', f"{CONFIG['ll_url']}/markhistory?rowid={urllib.parse.quote(str(download['rowid']))}")
+    old_rowid = urllib.parse.quote(str(download['rowid']))
+    status, _ = http_call('GET', f"{CONFIG['ll_url']}/markhistory?rowid={old_rowid}")
     if status >= 400:
         raise UpstreamError(f'LazyLibrarian returned HTTP {status}')
     if ll_statuses().get(book_id) != 'requested':
@@ -261,7 +273,13 @@ def ll_try_another_release(book_id):
     new = next((d for d in ll_downloads() if d['BookID'] == book_id), None)
     if not new:
         return 'none'
-    return 'same' if old_id and new.get('DownloadID') == old_id else 'new'
+    if old_id and new.get('DownloadID') == old_id:
+        # The same torrent was picked again (another indexer's link to it). With DEL_FAILED on, LazyLibrarian
+        # deletes torrents of Failed history rows from the client, which would kill this live download too,
+        # so drop the Failed row we just created.
+        http_call('GET', f"{CONFIG['ll_url']}/deletehistory?rowid={old_rowid}")
+        return 'same'
+    return 'new'
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -449,8 +467,12 @@ def create_request(ctx):
 def list_requests(ctx):
     user = ctx.require_user()
     expire_signups()
-    statuses = ll_statuses()
-    progress = ll_progress() if 'downloading' in statuses.values() else {}
+    books_raw = ll_books()
+    raw = ll_raw_statuses(books_raw)
+    downloads = ll_downloads() if 'downloading' in raw.values() else []
+    active = {d['BookID'] for d in downloads}
+    progress = {d['BookID']: max(0, min(100, int(float(d.get('progress') or 0)))) for d in downloads}
+    statuses = {book_id: effective_status(status, book_id, active) for book_id, status in raw.items()}
 
     if not user['isAdmin']:
         rows = db().execute('SELECT * FROM requests WHERE user_id=? ORDER BY created_at DESC LIMIT 200', (user['id'],)).fetchall()
@@ -476,9 +498,9 @@ def list_requests(ctx):
     for r in db().execute("SELECT book_id, username FROM requests WHERE status='approved' ORDER BY created_at"):
         requested_by[r['book_id']] = r['username']
     books = []
-    for b in ll_books():
-        status = AUDIO_STATUS_MAP.get(b.get('AudioStatus'))
-        if not status or not b.get('BookID'):
+    for b in books_raw:
+        status = statuses.get(b.get('BookID'))
+        if not status:
             continue
         books.append({
             'id': b['BookID'],
@@ -547,7 +569,10 @@ def valid_book_id(book_id):
 @route('POST', '/api/books/{book_id}/search')
 def search_again(ctx, book_id):
     ctx.require_admin()
-    ll_command('searchBook', {'id': valid_book_id(book_id), 'type': 'AudioBook'})
+    book_id = valid_book_id(book_id)
+    # Back to Wanted first: books stuck as Snatched with no download wouldn't be picked up otherwise
+    ll_command('queueBook', {'id': book_id, 'type': 'AudioBook'})
+    ll_command('searchBook', {'id': book_id, 'type': 'AudioBook'})
     return {'ok': True}
 
 

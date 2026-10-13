@@ -34,6 +34,7 @@ class Fakes:
         self.ll_downloads = []
         self.ntfy = []
         self.markhistory = []
+        self.deletehistory = []
 
 
 def serve(handler_cls):
@@ -113,6 +114,9 @@ def make_ll(fakes):
                     if str(d['rowid']) == q['rowid']:
                         fakes.ll_books[d['BookID']] = 'Wanted'
                 fakes.ll_downloads = [d for d in fakes.ll_downloads if str(d['rowid']) != q['rowid']]
+                return self.reply(200, '')
+            if parsed.path == '/deletehistory':
+                fakes.deletehistory.append(q['rowid'])
                 return self.reply(200, '')
             if parsed.path.startswith('/cache/'):
                 return self.reply(200, b'\x89PNGfake', 'image/png')
@@ -282,12 +286,32 @@ class BrokerTest(unittest.TestCase):
         self.fakes.next_release = 'deadbeef'
         self.assertEqual(self.call('POST', '/api/books/OL9W/try-another-release', token=ADMIN_TOKEN)[1], {'outcome': 'same'})
         self.assertEqual(self.fakes.markhistory, ['21'])
+        # The Failed row is removed again so LazyLibrarian's DEL_FAILED cleanup doesn't delete the live torrent
+        self.assertEqual(self.fakes.deletehistory, ['21'])
 
     def test_try_another_release_finds_new_torrent(self):
         self.fakes.ll_books['OL9W'] = 'Snatched'
         self.fakes.ll_downloads = [{'BookID': 'OL9W', 'AuxInfo': 'AudioBook', 'rowid': 21, 'DownloadID': 'deadbeef', 'progress': 0}]
         self.fakes.next_release = 'cafef00d'
         self.assertEqual(self.call('POST', '/api/books/OL9W/try-another-release', token=ADMIN_TOKEN)[1], {'outcome': 'new'})
+        self.assertEqual(self.fakes.deletehistory, [], 'a different release keeps the old one marked failed')
+
+    def test_stuck_download_shows_as_wanted(self):
+        # Snatched in LazyLibrarian but its torrent is gone from the client
+        self.fakes.ll_books['OL4W'] = 'Snatched'
+        self.fakes.ll_books['OL6W'] = 'Snatched'
+        self.fakes.ll_downloads = [{'BookID': 'OL6W', 'AuxInfo': 'AudioBook', 'rowid': 3, 'DownloadID': 'live', 'progress': 10}]
+        statuses = self.call('GET', '/api/books/status', token=ADMIN_TOKEN)[1]['statuses']
+        self.assertEqual(statuses, {'OL4W': 'requested', 'OL6W': 'downloading'})
+        books = {b['id']: b['status'] for b in self.call('GET', '/api/requests', token=ADMIN_TOKEN)[1]['books']}
+        self.assertEqual(books, {'OL4W': 'requested', 'OL6W': 'downloading'})
+
+    def test_search_again_requeues_first(self):
+        self.fakes.ll_books['OL4W'] = 'Snatched'
+        self.assertEqual(self.call('POST', '/api/books/OL4W/search', token=ADMIN_TOKEN)[1], {'ok': True})
+        cmds = [c[0] for c in self.fakes.ll_calls if c[0] in ('queueBook', 'searchBook')]
+        self.assertEqual(cmds, ['queueBook', 'searchBook'])
+        self.assertEqual(self.fakes.ll_books['OL4W'], 'Wanted')
 
     def test_admin_view_lists_books_with_progress_and_requester(self):
         self.call('POST', '/api/requests', {'bookId': 'OL3W', 'title': 'Three'}, FRIEND_TOKEN)
