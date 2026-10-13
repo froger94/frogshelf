@@ -35,6 +35,7 @@ class Fakes:
         self.ntfy = []
         self.markhistory = []
         self.deletehistory = []
+        self.history = []             # LazyLibrarian history rows: (rowid, status, download id)
 
 
 def serve(handler_cls):
@@ -113,11 +114,17 @@ def make_ll(fakes):
                 for d in fakes.ll_downloads:
                     if str(d['rowid']) == q['rowid']:
                         fakes.ll_books[d['BookID']] = 'Wanted'
+                        fakes.history.append((d['rowid'], 'Failed', d['DownloadID']))
                 fakes.ll_downloads = [d for d in fakes.ll_downloads if str(d['rowid']) != q['rowid']]
                 return self.reply(200, '')
             if parsed.path == '/deletehistory':
                 fakes.deletehistory.append(q['rowid'])
+                fakes.history = [h for h in fakes.history if str(h[0]) != q['rowid']]
                 return self.reply(200, '')
+            if parsed.path == '/get_history':
+                rows = [[''] * 6 + [status, 'QBITTORRENT', download_id, '-1', rowid, '']
+                        for rowid, status, download_id in fakes.history if q.get('sSearch', '') in download_id]
+                return self.reply(200, {'aaData': rows}, 'application/json')
             if parsed.path.startswith('/cache/'):
                 return self.reply(200, b'\x89PNGfake', 'image/png')
             if parsed.path != '/api' or q.get('apikey') != LL_KEY:
@@ -188,6 +195,12 @@ class BrokerTest(unittest.TestCase):
         broker.init_db()
         self.server = serve(broker.Handler)
         self.base = f'http://127.0.0.1:{self.server.server_port}'
+
+    def wait_for(self, condition, timeout=5):
+        deadline = time.time() + timeout
+        while not condition():
+            self.assertLess(time.time(), deadline, 'timed out waiting')
+            time.sleep(0.02)
 
     def tearDown(self):
         for s in (self.server, self.abs, self.ll, self.ntfy):
@@ -289,6 +302,14 @@ class BrokerTest(unittest.TestCase):
         # The Failed row is removed again so LazyLibrarian's DEL_FAILED cleanup doesn't delete the live torrent
         self.assertEqual(self.fakes.deletehistory, ['21'])
 
+    def test_try_another_release_drops_older_aborted_rows_too(self):
+        self.fakes.ll_books['OL9W'] = 'Snatched'
+        self.fakes.ll_downloads = [{'BookID': 'OL9W', 'AuxInfo': 'AudioBook', 'rowid': 21, 'DownloadID': 'deadbeef', 'progress': 0}]
+        self.fakes.history = [(7, 'Aborted', 'deadbeef')]
+        self.fakes.next_release = 'deadbeef'
+        self.assertEqual(self.call('POST', '/api/books/OL9W/try-another-release', token=ADMIN_TOKEN)[1], {'outcome': 'same'})
+        self.assertEqual(sorted(self.fakes.deletehistory), ['21', '7'])
+
     def test_try_another_release_finds_new_torrent(self):
         self.fakes.ll_books['OL9W'] = 'Snatched'
         self.fakes.ll_downloads = [{'BookID': 'OL9W', 'AuxInfo': 'AudioBook', 'rowid': 21, 'DownloadID': 'deadbeef', 'progress': 0}]
@@ -309,9 +330,20 @@ class BrokerTest(unittest.TestCase):
     def test_search_again_requeues_first(self):
         self.fakes.ll_books['OL4W'] = 'Snatched'
         self.assertEqual(self.call('POST', '/api/books/OL4W/search', token=ADMIN_TOKEN)[1], {'ok': True})
+        self.wait_for(lambda: any(c[0] == 'searchBook' for c in self.fakes.ll_calls))
         cmds = [c[0] for c in self.fakes.ll_calls if c[0] in ('queueBook', 'searchBook')]
         self.assertEqual(cmds, ['queueBook', 'searchBook'])
         self.assertEqual(self.fakes.ll_books['OL4W'], 'Wanted')
+
+    def test_search_again_drops_stale_rows_of_repicked_torrent(self):
+        # An earlier attempt at the same torrent was aborted; LazyLibrarian would delete the new download with it
+        self.fakes.ll_books['OL4W'] = 'Wanted'
+        self.fakes.history = [(51, 'Aborted', 'deadbeef'), (52, 'Failed', 'deadbeef'), (53, 'Aborted', 'otherhash')]
+        self.fakes.next_release = 'deadbeef'
+        self.call('POST', '/api/books/OL4W/search', token=ADMIN_TOKEN)
+        self.wait_for(lambda: len(self.fakes.deletehistory) == 2)
+        self.assertEqual(sorted(self.fakes.deletehistory), ['51', '52'])
+        self.assertEqual(self.fakes.history, [(53, 'Aborted', 'otherhash')])
 
     def test_admin_view_lists_books_with_progress_and_requester(self):
         self.call('POST', '/api/requests', {'bookId': 'OL3W', 'title': 'Three'}, FRIEND_TOKEN)

@@ -270,16 +270,40 @@ def ll_try_another_release(book_id):
     result = ll_request('searchBook', {'id': book_id, 'type': 'AudioBook', 'wait': 1}, timeout=120)
     if isinstance(result, str) and result != 'OK':
         raise UpstreamError(result)
-    new = next((d for d in ll_downloads() if d['BookID'] == book_id), None)
+    new = ll_clear_stale_history(book_id)
     if not new:
         return 'none'
-    if old_id and new.get('DownloadID') == old_id:
-        # The same torrent was picked again (another indexer's link to it). With DEL_FAILED on, LazyLibrarian
-        # deletes torrents of Failed history rows from the client, which would kill this live download too,
-        # so drop the Failed row we just created.
-        http_call('GET', f"{CONFIG['ll_url']}/deletehistory?rowid={old_rowid}")
-        return 'same'
-    return 'new'
+    return 'same' if old_id and new.get('DownloadID') == old_id else 'new'
+
+
+def ll_clear_stale_history(book_id):
+    """Drops Failed/Aborted history rows for the torrent the book is now downloading, and returns that download.
+    A search can pick a torrent that failed before (another indexer's link to it), and with DEL_FAILED on,
+    LazyLibrarian's cleanup of those old rows deletes the torrent from the client, killing the live download."""
+    download = next((d for d in ll_downloads() if d['BookID'] == book_id), None)
+    download_id = (download or {}).get('DownloadID')
+    if not download_id:
+        return download
+    query = urllib.parse.urlencode({'iDisplayStart': 0, 'iDisplayLength': 100, 'sSearch': download_id})
+    status, text = http_call('GET', f"{CONFIG['ll_url']}/get_history?{query}")
+    try:
+        rows = json.loads(text).get('aaData') or [] if status < 400 else []
+    except ValueError:
+        rows = []
+    # Columns: 6 status, 8 download id, 10 rowid
+    for row in rows:
+        if len(row) > 10 and row[8] == download_id and row[6] in ('Failed', 'Aborted'):
+            log.info('Dropping stale %s history row %s for %s', row[6], row[10], book_id)
+            http_call('GET', f"{CONFIG['ll_url']}/deletehistory?rowid={urllib.parse.quote(str(row[10]))}")
+    return download
+
+
+def ll_search_and_clear(book_id):
+    try:
+        ll_request('searchBook', {'id': book_id, 'type': 'AudioBook', 'wait': 1}, timeout=180)
+        ll_clear_stale_history(book_id)
+    except UpstreamError as e:
+        log.warning('Search for %s failed: %s', book_id, e)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -572,7 +596,8 @@ def search_again(ctx, book_id):
     book_id = valid_book_id(book_id)
     # Back to Wanted first: books stuck as Snatched with no download wouldn't be picked up otherwise
     ll_command('queueBook', {'id': book_id, 'type': 'AudioBook'})
-    ll_command('searchBook', {'id': book_id, 'type': 'AudioBook'})
+    # The search can take a minute; the app picks up the result on its next refresh
+    threading.Thread(target=ll_search_and_clear, args=(book_id,), daemon=True).start()
     return {'ok': True}
 
 
