@@ -57,9 +57,13 @@ class MainActivity : BridgeActivity() {
     // See: https://developer.android.com/develop/ui/views/layout/edge-to-edge
     val webView: WebView = findViewById(R.id.webview)
     webView.setOnApplyWindowInsetsListener { v, insets ->
+      // Frogshelf: the keyboard is drawn over the WebView rather than resizing it, which hid any field near the
+      // bottom of a page while typing. Shrink the WebView by the keyboard height too (see bottomMargin below).
+      var keyboardBottom = 0
       val (left, top, right, bottom) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         val sysInsets = insets.getInsets(WindowInsets.Type.systemBars())
-        Log.d(tag, "safe sysInsets: $sysInsets")
+        keyboardBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
+        Log.d(tag, "safe sysInsets: $sysInsets, keyboard: $keyboardBottom")
         arrayOf(sysInsets.left, sysInsets.top, sysInsets.right, sysInsets.bottom)
       } else {
         arrayOf(
@@ -83,7 +87,7 @@ class MainActivity : BridgeActivity() {
       // Set margins
       v.updateLayoutParams<ViewGroup.MarginLayoutParams> {
         leftMargin = left
-        bottomMargin = bottom
+        bottomMargin = maxOf(bottom, keyboardBottom)
         rightMargin = right
         topMargin = top
       }
