@@ -666,6 +666,44 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
         }
       }
     } else if (currentPlaybackSession?.isPodcastEpisode == true &&
+            currentPlaybackSession?.isLocal == true &&
+            DeviceManager.deviceData.deviceSettings?.autoplayNextEpisode != false) {
+      // Frogshelf: downloaded episode ended. Work out "next" from the server's episode list
+      // (it has release dates even for old downloads); play the downloaded copy if there is one,
+      // otherwise stream it. Offline, fall back to the downloaded episodes' own dates.
+      val session = currentPlaybackSession ?: return
+      val localItem = session.localLibraryItem ?: return
+      val localPodcast = localItem.media as? Podcast ?: return
+      val endedLocal = localPodcast.episodes?.find { it.id == session.localEpisodeId }
+      val serverItemId = localItem.libraryItemId
+      val endedServerEpisodeId = endedLocal?.serverEpisodeId
+      val playLocalFallback = {
+        val nextLocal = localPodcast.getNextLocalEpisodeAfter(endedLocal?.id, localItem, mediaManager)
+        Log.d(tag, "handlePlaybackEnded autoplay (offline) next=${nextLocal?.title}")
+        nextLocal?.let { startAutoplay(localItem, it) }
+      }
+      mediaProgressSyncer.finished {
+        mediaManager.loadServerUserMediaProgress {
+          if (serverItemId == null || endedServerEpisodeId == null || !DeviceManager.isConnectedToServer) {
+            playLocalFallback()
+          } else {
+            apiHandler.getLibraryItem(serverItemId) { serverItem ->
+              val serverPodcast = serverItem?.media as? Podcast
+              if (serverItem == null || serverPodcast == null) {
+                playLocalFallback()
+              } else {
+                val next = serverPodcast.getNextEpisodeAfter(endedServerEpisodeId, serverItem.id, mediaManager)
+                Log.d(tag, "handlePlaybackEnded autoplay (downloaded) next=${next?.title}")
+                if (next != null) {
+                  val localCopy = localPodcast.episodes?.find { it.serverEpisodeId == next.id }
+                  if (localCopy != null) startAutoplay(localItem, localCopy) else startAutoplay(serverItem, next)
+                }
+              }
+            }
+          }
+        }
+      }
+    } else if (currentPlaybackSession?.isPodcastEpisode == true &&
             currentPlaybackSession?.isLocal != true &&
             DeviceManager.deviceData.deviceSettings?.autoplayNextEpisode != false) {
       // Frogshelf: on the phone, continue with the next unplayed episode in release order.
@@ -677,17 +715,20 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
         mediaManager.loadServerUserMediaProgress {
           val nextEpisode = podcast.getNextEpisodeAfter(endedEpisodeId, libraryItem.id, mediaManager)
           Log.d(tag, "handlePlaybackEnded autoplay nextEpisode=${nextEpisode?.title}")
-          nextEpisode?.let { podcastEpisode ->
-            mediaManager.play(libraryItem, podcastEpisode, getPlayItemRequestPayload(false)) {
-              if (it == null) {
-                Log.e(tag, "Autoplay: failed to start next episode")
-              } else {
-                val playbackRate = mediaManager.getSavedPlaybackRate()
-                Handler(Looper.getMainLooper()).post { preparePlayer(it, true, playbackRate) }
-              }
-            }
-          }
+          nextEpisode?.let { startAutoplay(libraryItem, it) }
         }
+      }
+    }
+  }
+
+  // Frogshelf: start the next podcast episode after one ends (server or downloaded copy).
+  private fun startAutoplay(item: LibraryItemWrapper, episode: PodcastEpisode) {
+    mediaManager.play(item, episode, getPlayItemRequestPayload(false)) {
+      if (it == null) {
+        Log.e(tag, "Autoplay: failed to start next episode")
+      } else {
+        val playbackRate = mediaManager.getSavedPlaybackRate()
+        Handler(Looper.getMainLooper()).post { preparePlayer(it, true, playbackRate) }
       }
     }
   }

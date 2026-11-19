@@ -1,5 +1,6 @@
 package com.audiobookshelf.app.data
 
+import com.audiobookshelf.app.device.DeviceManager
 import android.content.Context
 import android.icu.text.DateFormat
 import android.os.Bundle
@@ -105,7 +106,8 @@ class Podcast(
   @JsonIgnore
   fun addEpisode(audioTrack:AudioTrack, episode:PodcastEpisode):PodcastEpisode {
     val localEpisodeId = "local_ep_" + episode.id
-    val newEpisode = PodcastEpisode(localEpisodeId,(episodes?.size ?: 0) + 1,episode.episode,episode.episodeType,episode.title,episode.subtitle,episode.description,null,null,null,audioTrack,episode.chapters,audioTrack.duration,episode.size, episode.id, localEpisodeId)
+    // Frogshelf: keep the release date so downloaded episodes can be played in order.
+    val newEpisode = PodcastEpisode(localEpisodeId,(episodes?.size ?: 0) + 1,episode.episode,episode.episodeType,episode.title,episode.subtitle,episode.description,episode.pubDate,episode.publishedAt,null,audioTrack,episode.chapters,audioTrack.duration,episode.size, episode.id, localEpisodeId)
     episodes?.add(newEpisode)
 
     var index = 1
@@ -117,6 +119,21 @@ class Podcast(
   }
 
   @JsonIgnore
+  // Frogshelf: offline version for a downloaded podcast. Needs release dates on the local episodes.
+  fun getNextLocalEpisodeAfter(currentLocalEpisodeId:String?, localItem:LocalLibraryItem, mediaManager: MediaManager):PodcastEpisode? {
+    val all = episodes ?: return null
+    val current = all.find { it.id == currentLocalEpisodeId } ?: return null
+    val after = current.publishedAt ?: return null
+    return all
+      .filter { (it.publishedAt ?: 0L) > after && it.id != current.id }
+      .filter { ep ->
+        val local = DeviceManager.dbManager.getLocalMediaProgress("${localItem.id}-${ep.id}")
+        val server = mediaManager.serverUserMediaProgress.find { it.libraryItemId == localItem.libraryItemId && it.episodeId == ep.serverEpisodeId }
+        local?.isFinished != true && server?.isFinished != true
+      }
+      .minByOrNull { it.publishedAt ?: Long.MAX_VALUE }
+  }
+
   // Frogshelf: the next unfinished episode released after the current one (listening order).
   fun getNextEpisodeAfter(currentEpisodeId:String?, libraryItemId:String, mediaManager: MediaManager):PodcastEpisode? {
     val all = episodes ?: return null
