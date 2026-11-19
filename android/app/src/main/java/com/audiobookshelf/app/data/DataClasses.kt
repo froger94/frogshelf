@@ -117,6 +117,20 @@ class Podcast(
   }
 
   @JsonIgnore
+  // Frogshelf: the next unfinished episode released after the current one (listening order).
+  fun getNextEpisodeAfter(currentEpisodeId:String?, libraryItemId:String, mediaManager: MediaManager):PodcastEpisode? {
+    val all = episodes ?: return null
+    val current = all.find { it.id == currentEpisodeId } ?: return null
+    val after = current.publishedAt ?: return null
+    return all
+      .filter { (it.publishedAt ?: 0L) > after && it.id != current.id }
+      .filter { ep ->
+        val progress = mediaManager.serverUserMediaProgress.find { it.libraryItemId == libraryItemId && it.episodeId == ep.id }
+        progress == null || !progress.isFinished
+      }
+      .minByOrNull { it.publishedAt ?: Long.MAX_VALUE }
+  }
+
   fun getNextUnfinishedEpisode(libraryItemId:String, mediaManager: MediaManager):PodcastEpisode? {
     val sortedEpisodes = episodes?.sortedByDescending { it.publishedAt }
     val podcastEpisode = sortedEpisodes?.find { episode ->

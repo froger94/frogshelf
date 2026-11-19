@@ -172,7 +172,10 @@ data class DeviceSettings(
         var downloadUsingCellular: DownloadUsingCellularSetting,
         var streamingUsingCellular: StreamingUsingCellularSetting,
         var androidAutoBrowseLimitForGrouping: Int,
-        var androidAutoBrowseSeriesSequenceOrder: AndroidAutoBrowseSeriesSequenceOrderSetting
+        var androidAutoBrowseSeriesSequenceOrder: AndroidAutoBrowseSeriesSequenceOrderSetting,
+        // Frogshelf: when a podcast episode ends, play the next one. Defaulted so settings
+        // saved by older app versions still load.
+        var autoplayNextEpisode: Boolean = true
 ) {
   companion object {
     // Static method to get default device settings

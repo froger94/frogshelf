@@ -665,6 +665,30 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
           }
         }
       }
+    } else if (currentPlaybackSession?.isPodcastEpisode == true &&
+            currentPlaybackSession?.isLocal != true &&
+            DeviceManager.deviceData.deviceSettings?.autoplayNextEpisode != false) {
+      // Frogshelf: on the phone, continue with the next unplayed episode in release order.
+      val session = currentPlaybackSession ?: return
+      val libraryItem = session.libraryItem ?: return
+      val podcast = libraryItem.media as? Podcast ?: return
+      val endedEpisodeId = session.episodeId
+      mediaProgressSyncer.finished {
+        mediaManager.loadServerUserMediaProgress {
+          val nextEpisode = podcast.getNextEpisodeAfter(endedEpisodeId, libraryItem.id, mediaManager)
+          Log.d(tag, "handlePlaybackEnded autoplay nextEpisode=${nextEpisode?.title}")
+          nextEpisode?.let { podcastEpisode ->
+            mediaManager.play(libraryItem, podcastEpisode, getPlayItemRequestPayload(false)) {
+              if (it == null) {
+                Log.e(tag, "Autoplay: failed to start next episode")
+              } else {
+                val playbackRate = mediaManager.getSavedPlaybackRate()
+                Handler(Looper.getMainLooper()).post { preparePlayer(it, true, playbackRate) }
+              }
+            }
+          }
+        }
+      }
     }
   }
 

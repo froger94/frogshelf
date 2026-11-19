@@ -55,6 +55,12 @@
       <p class="pl-4">{{ $strings.LabelDisableAutoRewind }}</p>
     </div>
     <div v-if="!isiOS" class="flex items-center py-3">
+      <div class="w-10 flex justify-center" @click="toggleAutoplayNextEpisode">
+        <ui-toggle-switch v-model="settings.autoplayNextEpisode" @input="saveSettings" />
+      </div>
+      <p class="pl-4">{{ $strings.LabelAutoplayNextEpisode }}</p>
+    </div>
+    <div v-if="!isiOS" class="flex items-center py-3">
       <div class="w-10 flex justify-center" @click="toggleEnableMp3IndexSeeking">
         <ui-toggle-switch v-model="settings.enableMp3IndexSeeking" @input="saveSettings" />
       </div>
@@ -201,6 +207,7 @@ export default {
       moreMenuSetting: '',
       settings: {
         disableAutoRewind: false,
+        autoplayNextEpisode: true,
         enableAltView: true,
         allowSeekingOnMediaControls: false,
         jumpForwardTime: 10,
@@ -599,6 +606,10 @@ export default {
       this.settings.enableSleepTimerAlmostDoneChime = !this.settings.enableSleepTimerAlmostDoneChime
       this.saveSettings()
     },
+    toggleAutoplayNextEpisode() {
+      this.settings.autoplayNextEpisode = !this.settings.autoplayNextEpisode
+      this.saveSettings()
+    },
     toggleDisableAutoRewind() {
       this.settings.disableAutoRewind = !this.settings.disableAutoRewind
       this.saveSettings()
@@ -641,6 +652,7 @@ export default {
     setDeviceSettings() {
       const deviceSettings = this.deviceData.deviceSettings || {}
       this.settings.disableAutoRewind = !!deviceSettings.disableAutoRewind
+      this.settings.autoplayNextEpisode = deviceSettings.autoplayNextEpisode !== false
       this.settings.enableAltView = !!deviceSettings.enableAltView
       this.settings.allowSeekingOnMediaControls = !!deviceSettings.allowSeekingOnMediaControls
       this.settings.jumpForwardTime = deviceSettings.jumpForwardTime || 10
