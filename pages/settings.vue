@@ -56,7 +56,7 @@
     </div>
     <div v-if="!isiOS" class="flex items-center py-3">
       <div class="w-10 flex justify-center" @click="toggleAutoplayNextEpisode">
-        <ui-toggle-switch v-model="settings.autoplayNextEpisode" @input="saveSettings" />
+        <ui-toggle-switch v-model="settings.autoplayNextPodcastEpisode" @input="saveSettings" />
       </div>
       <p class="pl-4">{{ $strings.LabelAutoplayNextEpisode }}</p>
     </div>
@@ -207,7 +207,7 @@ export default {
       moreMenuSetting: '',
       settings: {
         disableAutoRewind: false,
-        autoplayNextEpisode: true,
+        autoplayNextPodcastEpisode: true,
         enableAltView: true,
         allowSeekingOnMediaControls: false,
         jumpForwardTime: 10,
@@ -607,7 +607,7 @@ export default {
       this.saveSettings()
     },
     toggleAutoplayNextEpisode() {
-      this.settings.autoplayNextEpisode = !this.settings.autoplayNextEpisode
+      this.settings.autoplayNextPodcastEpisode = !this.settings.autoplayNextPodcastEpisode
       this.saveSettings()
     },
     toggleDisableAutoRewind() {
@@ -652,7 +652,7 @@ export default {
     setDeviceSettings() {
       const deviceSettings = this.deviceData.deviceSettings || {}
       this.settings.disableAutoRewind = !!deviceSettings.disableAutoRewind
-      this.settings.autoplayNextEpisode = deviceSettings.autoplayNextEpisode !== false
+      this.settings.autoplayNextPodcastEpisode = deviceSettings.autoplayNextPodcastEpisode !== false
       this.settings.enableAltView = !!deviceSettings.enableAltView
       this.settings.allowSeekingOnMediaControls = !!deviceSettings.allowSeekingOnMediaControls
       this.settings.jumpForwardTime = deviceSettings.jumpForwardTime || 10

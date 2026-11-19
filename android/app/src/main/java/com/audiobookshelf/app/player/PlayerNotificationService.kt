@@ -642,12 +642,18 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
 
   fun handlePlaybackEnded() {
     Log.d(tag, "handlePlaybackEnded")
+    currentPlaybackSession.let { s ->
+      Log.d(tag, "handlePlaybackEnded autoplay check: podcast=${s?.isPodcastEpisode} local=${s?.isLocal} " +
+        "setting=${DeviceManager.deviceData.deviceSettings?.autoplayNextPodcastEpisode} hasItem=${s?.libraryItem != null} " +
+        "media=${s?.libraryItem?.media?.javaClass?.simpleName} episodes=${(s?.libraryItem?.media as? Podcast)?.episodes?.size} " +
+        "hasLocalItem=${s?.localLibraryItem != null}")
+    }
     if (isAndroidAuto && currentPlaybackSession?.isPodcastEpisode == true) {
       Log.d(tag, "Podcast playback ended on android auto")
       val libraryItem = currentPlaybackSession?.libraryItem ?: return
 
       // Need to sync with server to set as finished
-      mediaProgressSyncer.finished {
+      finishEndedEpisode {
         // Need to reload media progress
         mediaManager.loadServerUserMediaProgress {
           val podcast = libraryItem.media as Podcast
@@ -667,7 +673,7 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
       }
     } else if (currentPlaybackSession?.isPodcastEpisode == true &&
             currentPlaybackSession?.isLocal == true &&
-            DeviceManager.deviceData.deviceSettings?.autoplayNextEpisode != false) {
+            DeviceManager.deviceData.deviceSettings?.autoplayNextPodcastEpisode != false) {
       // Frogshelf: downloaded episode ended. Work out "next" from the server's episode list
       // (it has release dates even for old downloads); play the downloaded copy if there is one,
       // otherwise stream it. Offline, fall back to the downloaded episodes' own dates.
@@ -682,7 +688,7 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
         Log.d(tag, "handlePlaybackEnded autoplay (offline) next=${nextLocal?.title}")
         nextLocal?.let { startAutoplay(localItem, it) }
       }
-      mediaProgressSyncer.finished {
+      finishEndedEpisode {
         mediaManager.loadServerUserMediaProgress {
           if (serverItemId == null || endedServerEpisodeId == null || !DeviceManager.isConnectedToServer) {
             playLocalFallback()
@@ -705,13 +711,13 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
       }
     } else if (currentPlaybackSession?.isPodcastEpisode == true &&
             currentPlaybackSession?.isLocal != true &&
-            DeviceManager.deviceData.deviceSettings?.autoplayNextEpisode != false) {
+            DeviceManager.deviceData.deviceSettings?.autoplayNextPodcastEpisode != false) {
       // Frogshelf: on the phone, continue with the next unplayed episode in release order.
       val session = currentPlaybackSession ?: return
       val libraryItem = session.libraryItem ?: return
       val podcast = libraryItem.media as? Podcast ?: return
       val endedEpisodeId = session.episodeId
-      mediaProgressSyncer.finished {
+      finishEndedEpisode {
         mediaManager.loadServerUserMediaProgress {
           val nextEpisode = podcast.getNextEpisodeAfter(endedEpisodeId, libraryItem.id, mediaManager)
           Log.d(tag, "handlePlaybackEnded autoplay nextEpisode=${nextEpisode?.title}")
@@ -719,6 +725,13 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
         }
       }
     }
+  }
+
+  // Frogshelf: when playback ends, the player has usually already paused the progress syncer
+  // (which saved the final position), and finished() does nothing once it's stopped, so its
+  // callback would never run. Only go through finished() while the syncer is still running.
+  private fun finishEndedEpisode(cb: () -> Unit) {
+    if (mediaProgressSyncer.listeningTimerRunning) mediaProgressSyncer.finished(cb) else cb()
   }
 
   // Frogshelf: start the next podcast episode after one ends (server or downloaded copy).

@@ -173,9 +173,10 @@ data class DeviceSettings(
         var streamingUsingCellular: StreamingUsingCellularSetting,
         var androidAutoBrowseLimitForGrouping: Int,
         var androidAutoBrowseSeriesSequenceOrder: AndroidAutoBrowseSeriesSequenceOrderSetting,
-        // Frogshelf: when a podcast episode ends, play the next one. Defaulted so settings
-        // saved by older app versions still load.
-        var autoplayNextEpisode: Boolean = true
+        // Frogshelf: when a podcast episode ends, play the next one. Nullable on purpose: settings
+        // saved by older versions don't have it, and Jackson here fills missing Booleans with
+        // false instead of using a Kotlin default. null means "never set" = on (checked as != false).
+        var autoplayNextPodcastEpisode: Boolean? = null
 ) {
   companion object {
     // Static method to get default device settings
