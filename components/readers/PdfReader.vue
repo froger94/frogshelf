@@ -195,12 +195,13 @@ export default {
       this.isRefreshing = true
       // Cannot use axios with this pdf reader so we need to handle the refresh separately
       // Should work on migrating to a different pdf reader in the future
-      const newAccessToken = await this.$store.dispatch('user/refreshToken').catch((error) => {
+      let newAccessToken = null
+      try {
+        newAccessToken = await this.$store.dispatch('user/refreshToken')
+      } catch (error) {
         console.error('Failed to refresh token', error)
-        return null
-      })
-      if (!newAccessToken) {
-        this.handleRefreshFailure()
+        this.isRefreshing = false
+        if (error?.rejected) this.handleRefreshFailure()
         return
       }
 

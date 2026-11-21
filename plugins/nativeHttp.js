@@ -61,65 +61,64 @@ export default function ({ store, $db, $socket }, inject) {
      * @returns {Promise} - Promise that resolves with the response data
      */
     async handleTokenRefresh(method, url, data, headers, options, serverConnectionConfig) {
-      try {
-        console.log('[nativeHttp] Attempting to refresh token...')
+      console.log('[nativeHttp] Attempting to refresh token...')
 
-        if (!serverConnectionConfig?.id) {
-          console.error('[nativeHttp] No server connection config ID available for token refresh')
-          throw new Error('No server connection available')
-        }
-
-        // Get refresh token from secure storage
-        const refreshToken = await $db.getRefreshToken(serverConnectionConfig.id)
-        if (!refreshToken) {
-          console.error('[nativeHttp] No refresh token available')
-          throw new Error('No refresh token available')
-        }
-
-        // Attempt to refresh the token
-        const newTokens = await this.refreshAccessToken(refreshToken, serverConnectionConfig.address)
-        if (!newTokens?.accessToken) {
-          console.error('[nativeHttp] Failed to refresh access token')
-          throw new Error('Failed to refresh access token')
-        }
-
-        // Update the store with new tokens
-        await this.updateTokens(newTokens, serverConnectionConfig)
-
-        // Retry the original request with the new token
-        console.log('[nativeHttp] Retrying original request with new token...')
-        const retryResponse = await CapacitorHttp.request({
-          method,
-          url,
-          data,
-          headers: {
-            ...headers,
-            Authorization: `Bearer ${newTokens.accessToken}`
-          },
-          ...options
-        })
-
-        if (retryResponse.status >= 400) {
-          console.error(`[nativeHttp] Retry request failed with status ${retryResponse.status}`)
-          const message = typeof retryResponse.data === 'string' ? retryResponse.data : `HTTP ${retryResponse.status}`
-          throw new Error(message)
-        }
-
-        return retryResponse.data
-      } catch (error) {
-        console.error('[nativeHttp] Token refresh failed:', error)
-
-        // If refresh fails, redirect to login
-        await this.handleRefreshFailure(serverConnectionConfig?.id)
-        throw error
+      if (!serverConnectionConfig?.id) {
+        console.error('[nativeHttp] No server connection config ID available for token refresh')
+        throw new Error('No server connection available')
       }
+
+      // Get refresh token from secure storage
+      const refreshToken = await $db.getRefreshToken(serverConnectionConfig.id)
+      if (!refreshToken) {
+        console.error('[nativeHttp] No refresh token available')
+        await this.handleRefreshFailure(serverConnectionConfig.id)
+        throw new Error('No refresh token available')
+      }
+
+      // Attempt to refresh the token
+      const newTokens = await this.refreshAccessToken(refreshToken, serverConnectionConfig.address)
+      if (newTokens?.rejected) {
+        // Server says the session is gone, so the user has to log in again
+        await this.handleRefreshFailure(serverConnectionConfig.id)
+        throw new Error('Refresh token rejected')
+      }
+      if (!newTokens?.accessToken) {
+        // Offline, timeout or server error: keep the login, the next request will try again
+        console.error('[nativeHttp] Could not refresh access token right now')
+        throw new Error('Failed to refresh access token')
+      }
+
+      // Update the store with new tokens
+      await this.updateTokens(newTokens, serverConnectionConfig)
+
+      // Retry the original request with the new token. A failure here is about that request, not the login
+      console.log('[nativeHttp] Retrying original request with new token...')
+      const retryResponse = await CapacitorHttp.request({
+        method,
+        url,
+        data,
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${newTokens.accessToken}`
+        },
+        ...options
+      })
+
+      if (retryResponse.status >= 400) {
+        console.error(`[nativeHttp] Retry request failed with status ${retryResponse.status}`)
+        const message = typeof retryResponse.data === 'string' ? retryResponse.data : `HTTP ${retryResponse.status}`
+        throw new Error(message)
+      }
+
+      return retryResponse.data
     },
 
     /**
      * Refreshes the access token using the refresh token
      * @param {string} refreshToken - The refresh token
      * @param {string} serverAddress - The server address
-     * @returns {Promise<Object|null>} - Promise that resolves with new tokens or null
+     * @returns {Promise<Object|null>} - New tokens, `{ rejected: true }` if the server refused the refresh token (401/403), or null for any other failure
      */
     async refreshAccessToken(refreshToken, serverAddress) {
       try {
@@ -140,6 +139,7 @@ export default function ({ store, $db, $socket }, inject) {
 
         if (response.status !== 200) {
           console.error('[nativeHttp] Token refresh request failed:', response.status)
+          if (response.status === 401 || response.status === 403) return { rejected: true }
           return null
         }
 

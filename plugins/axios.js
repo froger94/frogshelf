@@ -98,10 +98,6 @@ export default function ({ $axios, store, $db }) {
         // Attempt to refresh the token
         // Updates store if successful, otherwise clears store and throw error
         const newAccessToken = await store.dispatch('user/refreshToken')
-        if (!newAccessToken) {
-          console.error('No new access token received')
-          return Promise.reject(error)
-        }
 
         // Update the original request with new token
         if (!originalRequest.headers) {
@@ -120,7 +116,10 @@ export default function ({ $axios, store, $db }) {
         // Process queued requests with error
         processQueue(refreshError, null)
 
-        await handleRefreshFailure(store.getters['user/getServerConnectionConfigId'])
+        // Only a rejected session logs out; a network blip leaves the login so the next request can refresh again
+        if (refreshError?.rejected) {
+          await handleRefreshFailure(store.getters['user/getServerConnectionConfigId'])
+        }
 
         return Promise.reject(refreshError)
       } finally {

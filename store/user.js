@@ -167,11 +167,15 @@ export const actions = {
     commit('libraries/setCurrentLibrary', null, { root: true })
     await AbsLogger.info({ tag: 'user', message: `Logged out from server ${state.serverConnectionConfig?.name || 'Not connected'}` })
   },
+  /**
+   * Throws an error with `rejected: true` only when the session is gone (no refresh token, or the server said 401/403).
+   * Any other failure (offline, timeout, 5xx from the server or Cloudflare) throws a plain error so callers keep the login.
+   */
   async refreshToken({ getters, commit, state }) {
     const refreshToken = await this.$db.getRefreshToken(getters.getServerConnectionConfigId)
     if (!refreshToken) {
       console.error('No refresh token found')
-      return null
+      throw Object.assign(new Error('No refresh token found'), { rejected: true })
     }
 
     const serverAddress = getters.getServerAddress
@@ -187,13 +191,13 @@ export const actions = {
 
     if (response.status !== 200) {
       console.error('[user] Token refresh request failed:', response.status)
-      return null
+      throw Object.assign(new Error(`Token refresh failed with status ${response.status}`), { rejected: response.status === 401 || response.status === 403 })
     }
 
     const userResponseData = response.data
     if (!userResponseData.user?.accessToken) {
       console.error('[user] No access token in refresh response')
-      return null
+      throw new Error('No access token in refresh response')
     }
 
     // Update the config with new tokens
