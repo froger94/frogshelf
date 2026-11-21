@@ -32,10 +32,11 @@
         <div v-show="filterKey !== 'all' && episodesAreFiltered" class="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-success border border-green-300 shadow-sm z-10 pointer-events-none" />
       </button>
 
-      <div class="flex items-center border border-white border-opacity-25 rounded px-2" @click="clickSort">
-        <p class="text-sm text-fg">{{ sortText }}</p>
-        <span class="material-symbols ml-1 text-fg">{{ sortDesc ? 'arrow_drop_down' : 'arrow_drop_up' }}</span>
-      </div>
+      <!-- Frogshelf: one tap flips the order; the label says it in plain words. Other sort fields live in the filter menu. -->
+      <button class="flex items-center border border-fg/25 rounded px-2 py-0.5 outline:none" @click="toggleSortDirection">
+        <span class="material-symbols text-base text-fg mr-1">{{ sortDesc ? 'arrow_downward' : 'arrow_upward' }}</span>
+        <p class="text-sm text-fg whitespace-nowrap">{{ sortDirectionText }}</p>
+      </button>
     </div>
 
     <template v-for="episode in episodesSorted">
@@ -50,7 +51,6 @@
 
     <modals-podcast-episodes-feed-modal v-model="showPodcastEpisodeFeed" :library-item="libraryItem" :episodes="podcastFeedEpisodes" />
 
-    <modals-order-modal v-model="showSortModal" :order-by.sync="sortKey" :descending.sync="sortDesc" episodes />
   </div>
 </template>
 
@@ -78,7 +78,6 @@ export default {
     return {
       episodesCopy: [],
       showFiltersModal: false,
-      showSortModal: false,
       fetchingRSSFeed: false,
       podcastFeedEpisodes: [],
       showPodcastEpisodeFeed: false,
@@ -112,30 +111,6 @@ export default {
     },
     episodesAreFiltered() {
       return this.episodesFiltered.length !== this.episodesCopy.length
-    },
-    episodeSortItems() {
-      return [
-        {
-          text: this.$strings.LabelPubDate,
-          value: 'publishedAt'
-        },
-        {
-          text: this.$strings.LabelTitle,
-          value: 'title'
-        },
-        {
-          text: this.$strings.LabelSeason,
-          value: 'season'
-        },
-        {
-          text: this.$strings.LabelEpisode,
-          value: 'episode'
-        },
-        {
-          text: this.$strings.LabelFilename,
-          value: 'audioFile.metadata.filename'
-        }
-      ]
     },
     filterItems() {
       return [
@@ -216,21 +191,16 @@ export default {
       })
       return epmap
     },
-    sortText() {
-      if (!this.sortKey) return ''
-      const _sel = this.episodeSortItems.find((i) => i.value === this.sortKey)
-      return _sel?.text || ''
+    // Frogshelf: episodes are always in release order; say which way in plain words
+    sortDirectionText() {
+      return this.sortDesc ? this.$strings.LabelNewestFirst : this.$strings.LabelOldestFirst
     },
     filterKey() {
       return this.$store.getters['user/getUserSetting']('podcastEpisodesFilterBy') || 'incomplete'
     },
-    sortKey: {
-      get() {
-        return this.$store.getters['user/getUserSetting']('podcastEpisodesOrderBy') || 'publishedAt'
-      },
-      set(val) {
-        this.$store.dispatch('user/updateUserSettings', { podcastEpisodesOrderBy: val })
-      }
+    // Frogshelf: title/season/filename sorts were dropped; a saved one (e.g. 'title') made the list look random
+    sortKey() {
+      return 'publishedAt'
     },
     sortDesc: {
       get() {
@@ -301,8 +271,9 @@ export default {
     showFilters() {
       this.showFiltersModal = true
     },
-    clickSort() {
-      this.showSortModal = true
+    async toggleSortDirection() {
+      await this.$hapticsImpact()
+      this.sortDesc = !this.sortDesc
     },
     getEpisodeProgress(episode) {
       if (this.isLocal) return this.$store.getters['globals/getLocalMediaProgressById'](this.libraryItemId, episode.id)
