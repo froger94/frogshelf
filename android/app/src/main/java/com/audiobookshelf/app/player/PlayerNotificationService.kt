@@ -73,6 +73,7 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
     var isUnmeteredNetwork = false
     var hasNetworkConnectivity = false // Not 100% reliable has internet
     var isSwitchingPlayer = false // Used when switching between cast player and exoplayer
+    const val RESUME_CHECK_AFTER_PAUSE_MS = 30000L // Frogshelf: check the server before resuming after this long a pause
   }
 
   private val tag = "PlayerNotificationServ"
@@ -1030,8 +1031,62 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
       Log.d(tag, "Already playing")
       return
     }
+    // Frogshelf: after a pause, another device (Shelf on the desktop) may have carried on with
+    // this item. The socket update that moves the paused player is often missed (the socket keeps
+    // dropping), so ask the server before resuming instead of continuing from a stale spot.
+    val pausedFor = if (PlayerListener.lastPauseTime > 0) System.currentTimeMillis() - PlayerListener.lastPauseTime else 0L
+    val session = mediaProgressSyncer.currentPlaybackSession ?: currentPlaybackSession
+    if (pausedFor > RESUME_CHECK_AFTER_PAUSE_MS && session != null && !session.isLocal && !session.libraryItemId.isNullOrEmpty() && !isCheckingResume && DeviceManager.checkConnectivity(ctx)) {
+      isCheckingResume = true
+      checkProgressBeforeResume(session) {
+        isCheckingResume = false
+        currentPlayer.volume = 1F
+        currentPlayer.play()
+      }
+      return
+    }
     currentPlayer.volume = 1F
     currentPlayer.play()
+  }
+
+  private var isCheckingResume = false
+
+  // Frogshelf: calls resume() on the main thread unless it starts something else instead.
+  private fun checkProgressBeforeResume(session: PlaybackSession, resume: () -> Unit) {
+    val runMain = { fn: () -> Unit -> Handler(Looper.getMainLooper()).post { fn() } }
+    apiHandler.getMediaProgress(session.libraryItemId!!, session.episodeId, null) { progress ->
+      runMain {
+        val stillCurrent = currentPlaybackSession?.id == session.id
+        if (progress == null || !stillCurrent || progress.lastUpdate <= session.updatedAt) {
+          resume()
+        } else if (progress.isFinished) {
+          // Finished on another device: carry on with the next episode rather than replaying this one
+          val libraryItem = session.libraryItem
+          val podcast = libraryItem?.media as? Podcast
+          if (session.isPodcastEpisode && libraryItem != null && podcast != null) {
+            mediaManager.loadServerUserMediaProgress {
+              runMain {
+                val next = podcast.getNextEpisodeAfter(session.episodeId, libraryItem.id, mediaManager)
+                AbsLogger.info("PlayerNotificationService", "checkProgressBeforeResume: \"${session.displayTitle}\" was finished elsewhere, next=${next?.title}")
+                if (next != null) {
+                  mediaProgressSyncer.stop(false) { startAutoplay(libraryItem, next) }
+                } else {
+                  resume()
+                }
+              }
+            }
+          } else {
+            resume()
+          }
+        } else if (Math.abs(progress.currentTime - getCurrentTimeSeconds()) > 2) {
+          AbsLogger.info("PlayerNotificationService", "checkProgressBeforeResume: \"${session.displayTitle}\" moved on elsewhere, ${getCurrentTimeSeconds()}s -> ${progress.currentTime}s")
+          seekPlayer((progress.currentTime * 1000).toLong())
+          resume()
+        } else {
+          resume()
+        }
+      }
+    }
   }
 
   fun pause() {

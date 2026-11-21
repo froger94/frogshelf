@@ -238,12 +238,21 @@ class AbsAudioPlayer : Plugin() {
           return call.resolve(JSObject("{\"error\":\"No audio files found on device. Download book again to fix.\"}"))
         }
 
-        Handler(Looper.getMainLooper()).post {
+        // Frogshelf: start from the server's position when it is newer than the downloaded copy's
+        val localItem = it
+        val checkServer: ((Double?) -> Unit) -> Unit = { done ->
+          if (startTimeOverride != null) done(null)
+          else playerNotificationService.mediaManager.getNewerServerStartTime(localItem, episode, done)
+        }
+        checkServer { serverStartTime -> Handler(Looper.getMainLooper()).post {
           Log.d(tag, "prepareLibraryItem: Preparing Local Media item ${jacksonMapper.writeValueAsString(it)}")
           val playbackSession = it.getPlaybackSession(episode, playerNotificationService.getDeviceInfo())
           if (startTimeOverride != null) {
             Log.d(tag, "prepareLibraryItem: Using start time override $startTimeOverride")
             playbackSession.currentTime = startTimeOverride
+          } else if (serverStartTime != null) {
+            Log.d(tag, "prepareLibraryItem: Using newer server position $serverStartTime")
+            playbackSession.currentTime = serverStartTime
           }
 
           if (playerNotificationService.mediaProgressSyncer.listeningTimerRunning) { // If progress syncing then first stop before preparing next
@@ -263,7 +272,7 @@ class AbsAudioPlayer : Plugin() {
             playerNotificationService.mediaProgressSyncer.reset()
             playerNotificationService.preparePlayer(playbackSession, playWhenReady, playbackRate)
           }
-        }
+        } }
         return call.resolve(JSObject())
       }
     } else { // Play library item from server

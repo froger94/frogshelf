@@ -6,6 +6,7 @@ import android.support.v4.media.MediaBrowserCompat
 import android.util.Log
 import com.audiobookshelf.app.data.*
 import com.audiobookshelf.app.device.DeviceManager
+import com.audiobookshelf.app.plugins.AbsLogger
 import com.audiobookshelf.app.server.ApiHandler
 import com.getcapacitor.JSObject
 import java.util.*
@@ -983,9 +984,41 @@ class MediaManager(private var apiHandler: ApiHandler, var ctx: Context) {
     }
   }
 
+  // Frogshelf: local progress is only refreshed from the server on connect, so a downloaded copy
+  // played later (autoplay, Android Auto, the play button) could start from a stale spot, and its
+  // next sync dragged the server back, even un-finishing episodes. Before playing a downloaded
+  // copy, use the server's position when it is newer. cb gets the start time to use, or null to
+  // keep the local one (offline, no server progress, or local is newer).
+  fun getNewerServerStartTime(localItem:LocalLibraryItem, episode:PodcastEpisode?, cb: (Double?) -> Unit) {
+    val serverItemId = localItem.libraryItemId
+    val config = DeviceManager.getServerConnectionConfig(localItem.serverConnectionConfigId)
+    if (serverItemId.isNullOrEmpty() || config == null || !DeviceManager.isConnectedToServer || (episode != null && episode.serverEpisodeId.isNullOrEmpty())) {
+      return cb(null)
+    }
+    val progressId = if (episode == null) localItem.id else "${localItem.id}-${episode.id}"
+    apiHandler.getMediaProgress(serverItemId, episode?.serverEpisodeId, config) { serverProgress ->
+      val local = DeviceManager.dbManager.getLocalMediaProgress(progressId)
+      if (serverProgress == null || (local != null && serverProgress.lastUpdate <= local.lastUpdate)) {
+        cb(null)
+      } else {
+        AbsLogger.info("MediaManager", "getNewerServerStartTime: server progress for \"${localItem.title}\" is newer (server ${serverProgress.currentTime}s finished=${serverProgress.isFinished}, local ${local?.currentTime}s)")
+        if (local != null) {
+          local.updateFromServerMediaProgress(serverProgress)
+          DeviceManager.dbManager.saveLocalMediaProgress(local)
+        }
+        // A finished episode starts over, same as getPlaybackSession does for local progress
+        cb(if (serverProgress.isFinished) 0.0 else serverProgress.currentTime)
+      }
+    }
+  }
+
   fun play(libraryItemWrapper:LibraryItemWrapper, episode:PodcastEpisode?, playItemRequestPayload:PlayItemRequestPayload, cb: (PlaybackSession?) -> Unit) {
     if (libraryItemWrapper is LocalLibraryItem) {
-      cb(libraryItemWrapper.getPlaybackSession(episode, playItemRequestPayload.deviceInfo))
+      getNewerServerStartTime(libraryItemWrapper, episode) { startTime ->
+        val session = libraryItemWrapper.getPlaybackSession(episode, playItemRequestPayload.deviceInfo)
+        startTime?.let { session.currentTime = it }
+        cb(session)
+      }
     } else {
       val libraryItem = libraryItemWrapper as LibraryItem
       apiHandler.playLibraryItem(libraryItem.id,episode?.id ?: "", playItemRequestPayload) {
