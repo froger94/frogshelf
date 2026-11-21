@@ -111,12 +111,16 @@
           <div class="flex-grow" />
           <p class="font-mono text-fg" style="font-size: 0.8rem">{{ timeRemainingPretty }}</p>
         </div>
-        <div ref="track" class="h-1.5 w-full bg-track/50 relative rounded-full overflow-hidden" :class="{ 'animate-pulse': showLoadingState }" @click.stop>
-          <div ref="readyTrack" class="h-full bg-track-buffered absolute top-0 left-0 rounded-full pointer-events-none" />
-          <div ref="bufferedTrack" class="h-full bg-track absolute top-0 left-0 rounded-full pointer-events-none" />
-          <div ref="playedTrack" class="h-full bg-track-cursor absolute top-0 left-0 rounded-full pointer-events-none" />
-          <div ref="trackCursor" class="h-7 w-7 rounded-full absolute pointer-events-auto flex items-center justify-center" :style="{ top: '-11px' }" :class="{ 'opacity-0': playerSettings.lockUi || !showFullscreen }" @touchstart="touchstartCursor">
-            <div class="bg-track-cursor rounded-full w-3.5 h-3.5 pointer-events-none" />
+        <!-- Frogshelf: the cursor used to sit inside the overflow-hidden bar, which clipped it to a 6px sliver.
+             It now sits beside the bar, and the whole finger-height strip around the bar takes touches. -->
+        <div class="relative w-full py-3 -my-3" @click.stop @touchstart="touchstartTrack">
+          <div ref="track" class="h-1.5 w-full bg-track/50 relative rounded-full overflow-hidden pointer-events-none" :class="{ 'animate-pulse': showLoadingState }">
+            <div ref="readyTrack" class="h-full bg-track-buffered absolute top-0 left-0 rounded-full" />
+            <div ref="bufferedTrack" class="h-full bg-track absolute top-0 left-0 rounded-full" />
+            <div ref="playedTrack" class="h-full bg-track-cursor absolute top-0 left-0 rounded-full" />
+          </div>
+          <div ref="trackCursor" class="h-7 w-7 rounded-full absolute flex items-center justify-center pointer-events-none" :style="{ top: '50%', transform: 'translateY(-50%)' }" :class="{ 'opacity-0': playerSettings.lockUi || !showFullscreen }">
+            <div class="bg-track-cursor rounded-full shadow transition-all" :class="isDraggingCursor ? 'w-6 h-6' : 'w-4 h-4'" />
           </div>
         </div>
       </div>
@@ -651,15 +655,29 @@ export default {
         this.$refs.playedTrack.classList.add('bg-yellow-300')
       }
     },
-    async touchstartCursor(e) {
+    // Frogshelf: a touch anywhere on the bar moves the cursor under the finger and starts a drag;
+    // the seek happens on release (touchend), same as dragging the cursor itself.
+    async touchstartTrack(e) {
       if (!e || !e.touches || !this.$refs.track || !this.showFullscreen || this.playerSettings.lockUi) return
 
-      await this.$hapticsImpact()
+      let duration = this.totalDuration
+      let minTime = 0
+      if (this.playerSettings.useChapterTrack && this.currentChapter) {
+        duration = this.currentChapterDuration
+        minTime = this.currentChapter.start
+      }
+      const rect = this.$refs.track.getBoundingClientRect()
+      const x = e.touches[0].clientX
+      const percent = rect.width ? Math.min(1, Math.max(0, (x - rect.left) / rect.width)) : 0
+      const touchedTime = minTime + percent * duration
+
       this.isDraggingCursor = true
       this.draggingTouchStartX = e.touches[0].pageX
-      this.draggingTouchStartTime = this.currentTime
-      this.draggingCurrentTime = this.currentTime
+      this.draggingTouchStartTime = touchedTime
+      this.draggingCurrentTime = touchedTime
+      this.updateTimestamp()
       this.updateTrack()
+      await this.$hapticsImpact()
     },
     async playPauseClick() {
       await this.$hapticsImpact()
