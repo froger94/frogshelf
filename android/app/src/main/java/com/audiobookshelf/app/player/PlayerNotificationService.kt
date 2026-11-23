@@ -742,7 +742,12 @@ class PlayerNotificationService : MediaBrowserServiceCompat() {
         Log.e(tag, "Autoplay: failed to start next episode")
       } else {
         val playbackRate = mediaManager.getSavedPlaybackRate()
-        Handler(Looper.getMainLooper()).post { preparePlayer(it, true, playbackRate) }
+        Handler(Looper.getMainLooper()).post {
+          // The ended episode's session is still in the syncer (pause doesn't clear it); drop it
+          // so the next episode isn't synced under the old one's id.
+          mediaProgressSyncer.reset()
+          preparePlayer(it, true, playbackRate)
+        }
       }
     }
   }
